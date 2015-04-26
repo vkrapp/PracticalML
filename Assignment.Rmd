@@ -1,0 +1,84 @@
+---
+title: "Predicting Exercise Performance with Accelerometer Data"
+author: "vkrapp"
+date: "Sunday, April 19, 2015"
+output: html_document
+---
+
+
+##Executive summary
+In this project, we use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har. The goal of the project was to predict the manner in which they did the exercise. 
+After cleaning the data, the random forest algorithm was applied to build the model.
+
+## Needed Packages
+``` {r Packages}
+library(caret)
+```
+
+##Reading and Cleaning Data
+First, we read the data into R and remove all columns that include empty spaces or NAs, since these columns are not useful for fitting models.The data files are already downloaded and saved in the current working directory.
+``` {r GetCleanData, cache=TRUE}
+train <- read.csv("pml-training.csv", na.strings = c("NA", ""))
+test <-  read.csv("pml-testing.csv", na.strings = c("NA", "")) # This data set is for the submission
+dim(train) #19622   160 -> large sample
+dim(test) #20 160
+# All variables that include NAs or empty space are removed:
+complete <- complete.cases(t(train))
+train <- train[,complete]
+test <- test[,complete]                   
+```
+Next, variables that include timing information or the index of the observation are removed because they do not provide relevant information for our model.  
+``` {r CleanData, cache=TRUE}
+train <- train[,c(-1,-3:-7)]
+test <- test[,c(-1,-3:-7)]
+dim(train) #19622    54
+```
+With this simplified data set we are going to build our model.
+
+## Cross Validation and Model Fitting
+The data set is splitted into a training (70%) and a test (validation) set (30%). We perform the random forest algorithm only on the training set with a 5-fold cross-validation. To estimate the out-of-sample-error, we test our model`s accuracy on an independent test set. 
+``` {r  TrainSplit}
+set.seed(2005)
+inTrain <- createDataPartition(y=train$classe, p=0.7, list=FALSE)
+training <- train[inTrain,]
+testing <- train[-inTrain,]
+
+# Fit model
+set.seed(2005)
+modelFit <- train(classe~., method="rf", data=training, 
+                  trControl = trainControl(method = "cv", number = 5))
+modelFit
+modelFit$finalModel
+
+# Test model on testing data
+predictions <- predict(modelFit, testing)
+
+# Evaluation of prediction
+matrix <- confusionMatrix(predictions,testing$classe)
+matrix
+```
+
+So with this approach, we get a accuracy of `r matrix$overall[[1]]` on our testing data set. This is a pretty good prediction.   
+In a next step, the ten most important variables for the model are plotted.
+```{r Importance}
+# Get the variable importance
+VarImportance <- varImp(modelFit)
+# Plot the 10 most important predictors
+plot(VarImportance, main = "Top 10 of the Most Important Predictors", top = 10)
+
+```
+
+## Submission
+In the end, we use our model to predict the classes of the 20 test cases.
+``` {r  Submission}
+answers = predict(modelFit, test)
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+        }
+    }
+pml_write_files(answers)
+```
